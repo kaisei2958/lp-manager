@@ -31,13 +31,19 @@ function backlogBase() {
 export async function GET(req: NextRequest) {
   const issueKey = req.nextUrl.searchParams.get('issueKey')
   if (!issueKey) return NextResponse.json({ error: 'issueKey is required' }, { status: 400 })
+  // issueKey を正規化: 小文字→大文字、ハイフンなし(プロジェクトキーのみ)はスキップ
+    const normalizedKey = issueKey.toUpperCase()
+    if (!normalizedKey.includes('-')) {
+          // "s323" / "S323" のようなプロジェクトキーのみの場合は null を返す
+          return NextResponse.json({ issueKey: normalizedKey, noIssue: true })
+    }
   if (!BACKLOG_SPACE || !BACKLOG_API_KEY) {
     return NextResponse.json({ error: 'Backlog env vars not set' }, { status: 500 })
   }
 
   try {
     const res = await fetch(
-      `${backlogBase()}/issues/${issueKey}?apiKey=${BACKLOG_API_KEY}`,
+      `${backlogBase()}/issues/${normalizedKey}?apiKey=${BACKLOG_API_KEY}`,
       { next: { revalidate: 60 } }   // 60秒キャッシュ
     )
     if (!res.ok) {
@@ -76,6 +82,10 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const issueKey = req.nextUrl.searchParams.get('issueKey')
   if (!issueKey) return NextResponse.json({ error: 'issueKey is required' }, { status: 400 })
+  const normalizedKey = issueKey.toUpperCase()
+    if (!normalizedKey.includes('-')) {
+          return NextResponse.json({ issueKey: normalizedKey, noIssue: true })
+    }
   if (!BACKLOG_SPACE || !BACKLOG_API_KEY) {
     return NextResponse.json({ error: 'Backlog env vars not set' }, { status: 500 })
   }
@@ -92,7 +102,7 @@ export async function PATCH(req: NextRequest) {
       statusId: String(backlogStatusId),
     })
     const res = await fetch(
-      `${backlogBase()}/issues/${issueKey}?${params}`,
+      `${backlogBase()}/issues/${normalizedKey}?${params}`,
       { method: 'PATCH' }
     )
     if (!res.ok) {
