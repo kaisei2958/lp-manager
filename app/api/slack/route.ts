@@ -15,12 +15,13 @@ export async function GET(req: NextRequest) {
 
   try {
     // チャンネル名（#なし）が渡された場合はIDに変換
-    let channelId = channel
+    let channelId: string = channel
     if (!channel.startsWith('C') && !channel.startsWith('G') && !channel.startsWith('D')) {
-      channelId = await resolveChannelId(channel)
-      if (!channelId) {
+      const resolved = await resolveChannelId(channel)
+      if (!resolved) {
         return NextResponse.json({ error: `Channel not found: ${channel}` }, { status: 404 })
       }
+      channelId = resolved
     }
 
     // メッセージ取得
