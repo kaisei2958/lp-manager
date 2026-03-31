@@ -1,4 +1,7 @@
 export type LPStatus =
+  | '依頼前'
+  | 'WF作成'
+  | 'デザイン修正'
   | '進行中'
   | 'コーディング'
   | '先方チェック'
@@ -38,7 +41,7 @@ export interface LP {
 export type LPInsert = Omit<LP, 'id' | 'created_at'>
 
 export const STATUS_LIST: LPStatus[] = [
-  '進行中', 'コーディング', '先方チェック', '配信待ち', '納品', '保留', '失注',
+  '依頼前', 'WF作成', 'デザイン修正', '進行中', 'コーディング', '先方チェック', '配信待ち', '納品', '保留', '失注',
 ]
 
 export function totalHours(lp: LP): number {
