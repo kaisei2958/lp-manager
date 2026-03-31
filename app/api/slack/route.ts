@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const SLACK_TOKEN = process.env.SLACK_BOT_TOKEN  // xoxb-... (Bot User OAuth Token)
+const SLACK_TOKEN = process.env.SLACK_BOT_TOKEN
 
-// ===== GET: チャンネルのメッセージを取得 =====
-// /api/slack?channel=C12345678&limit=20
 export async function GET(req: NextRequest) {
   const channel = req.nextUrl.searchParams.get('channel')
   const limit   = req.nextUrl.searchParams.get('limit') ?? '20'
@@ -14,7 +12,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // チャンネル名（#なし）が渡された場合はIDに変換
+    // チャンネル名の場合はIDに変換
     let channelId: string = channel
     if (!channel.startsWith('C') && !channel.startsWith('G') && !channel.startsWith('D')) {
       const resolved = await resolveChannelId(channel)
@@ -24,18 +22,23 @@ export async function GET(req: NextRequest) {
       channelId = resolved
     }
 
-    // メッセージ取得
-    const res = await fetch(
-      `https://slack.com/api/conversations.history?channel=${channelId}&limit=${limit}`,
-      { headers: { Authorization: `Bearer ${SLACK_TOKEN}` }, next: { revalidate: 30 } }
-    )
-    const data = await res.json()
+    // メッセージ取得（not_in_channelの場合はjoinしてリトライ）
+    let data = await fetchHistory(channelId, limit)
+
+    if (!data.ok && data.error === 'not_in_channel') {
+      // パブリックチャンネルなら参加してリトライ
+      await fetch('https://slack.com/api/conversations.join', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${SLACK_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: channelId })
+      })
+      data = await fetchHistory(channelId, limit)
+    }
 
     if (!data.ok) {
       return NextResponse.json({ error: data.error }, { status: 400 })
     }
 
-    // ユーザー名を解決して返す
     const messages = await Promise.all(
       (data.messages ?? []).map(async (m: SlackMessage) => ({
         ts:       m.ts,
@@ -53,8 +56,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ===== ヘルパー =====
-
 interface SlackMessage {
   ts: string
   text?: string
@@ -69,19 +70,29 @@ interface SlackFile {
   url_private: string
 }
 
-// チャンネル名 → ID
-async function resolveChannelId(name: string): Promise<string | null> {
+async function fetchHistory(channelId: string, limit: string) {
   const res = await fetch(
-    `https://slack.com/api/conversations.list?limit=200&exclude_archived=true&types=public_channel,private_channel`,
-    { headers: { Authorization: `Bearer ${SLACK_TOKEN}` } }
+    `https://slack.com/api/conversations.history?channel=${channelId}&limit=${limit}`,
+    { headers: { Authorization: `Bearer ${SLACK_TOKEN}` }, next: { revalidate: 30 } }
   )
-  const data = await res.json()
-  if (!data.ok) return null
-  const ch = data.channels?.find((c: { name: string; id: string }) => c.name === name.replace(/^#/, ''))
-  return ch?.id ?? null
+  return res.json()
 }
 
-// ユーザーID → 表示名
+async function resolveChannelId(name: string): Promise<string | null> {
+  let cursor = ''
+  const cleanName = name.replace(/^#/, '')
+  while (true) {
+    const url = `https://slack.com/api/conversations.list?limit=200&exclude_archived=true&types=public_channel,private_channel${cursor ? '&cursor=' + cursor : ''}`
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${SLACK_TOKEN}` } })
+    const data = await res.json()
+    if (!data.ok) return null
+    const ch = data.channels?.find((c: { name: string; id: string }) => c.name === cleanName)
+    if (ch) return ch.id
+    if (!data.response_metadata?.next_cursor) return null
+    cursor = data.response_metadata.next_cursor
+  }
+}
+
 const userCache: Record<string, string> = {}
 async function resolveUserName(userId: string): Promise<string> {
   if (userCache[userId]) return userCache[userId]
