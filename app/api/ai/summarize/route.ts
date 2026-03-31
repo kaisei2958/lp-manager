@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
 interface SlackMessage {
   ts: string
@@ -19,15 +19,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'メッセージがありません' }, { status: 400 })
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY
+    const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'ANTHROPIC_API_KEY を Vercel 環境変数に設定してください' },
+        { error: 'GEMINI_API_KEY を Vercel 環境変数に設定してください' },
         { status: 500 }
       )
     }
 
-    const anthropic = new Anthropic({ apiKey })
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
     // メッセージを整形（最新30件、古い順）
     const formatted = messages
@@ -55,13 +56,8 @@ ${formatted}
 
 実務担当者が1分で状況を把握できる要約にしてください。`
 
-    const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
-      messages: [{ role: 'user', content: prompt }],
-    })
-
-    const summary = response.content[0].type === 'text' ? response.content[0].text : ''
+    const result = await model.generateContent(prompt)
+    const summary = result.response.text()
 
     return NextResponse.json({ summary })
   } catch (e) {
