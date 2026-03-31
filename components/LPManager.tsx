@@ -128,6 +128,12 @@ export default function LPManager() {
   const [toastVisible, setToastVisible] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Slack AI 要約
+  const [summaryLP, setSummaryLP] = useState<LP | null>(null)
+  const [summaryText, setSummaryText] = useState('')
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+
   // ===== DATA =====
   const load = useCallback(async () => {
     try {
@@ -238,6 +244,56 @@ export default function LPManager() {
       }
     } catch (e: unknown) {
       toast('⚠️ ' + (e instanceof Error ? e.message : '保存に失敗しました'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ===== SLACK AI 要約 =====
+  async function fetchSlackSummary(lp: LP) {
+    setSummaryLP(lp)
+    setSummaryText('')
+    setSummaryError(null)
+    setSummaryLoading(true)
+    try {
+      const slackRes = await fetch(`/api/slack?channel=${encodeURIComponent(lp.slack_channel)}&limit=30`)
+      const slackData = await slackRes.json()
+      if (!slackRes.ok || slackData.error) throw new Error(slackData.error || 'Slackメッセージの取得に失敗しました')
+
+      const summaryRes = await fetch('/api/ai/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: slackData.messages, caseName: lp.name }),
+      })
+      const summaryData = await summaryRes.json()
+      if (!summaryRes.ok || summaryData.error) throw new Error(summaryData.error || 'AI要約の生成に失敗しました')
+      setSummaryText(summaryData.summary)
+    } catch (e) {
+      setSummaryError(e instanceof Error ? e.message : '要約に失敗しました')
+    } finally {
+      setSummaryLoading(false)
+    }
+  }
+
+  // ===== BACKLOG 手動同期 =====
+  async function syncBacklog(lp: LP) {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/backlog/sync?key=${encodeURIComponent(lp.backlog_issue_key)}`)
+      const data = await res.json()
+      if (!res.ok || data.error) { toast('⚠️ ' + (data.error || 'Backlog同期に失敗しました')); return }
+      if (data.appStatus && data.appStatus !== lp.status) {
+        const { id: _id, created_at: _ca, ...lpInsert } = lp as LP & { created_at: string }
+        const updated = await updateLP(lp.id, { ...lpInsert, status: data.appStatus as LPStatus })
+        setLps(prev => prev.map(l => l.id === lp.id ? updated : l))
+        toast(`✅ ステータスを「${data.appStatus}」に更新しました`)
+      } else if (data.appStatus === lp.status) {
+        toast('✅ ステータスは最新です')
+      } else {
+        toast(`⚠️ Backlogステータス「${data.backlogStatus}」のマッピングがありません`)
+      }
+    } catch (e) {
+      toast('⚠️ ' + (e instanceof Error ? e.message : 'Backlog同期に失敗しました'))
     } finally {
       setSaving(false)
     }
@@ -390,6 +446,12 @@ export default function LPManager() {
                         <td className="td-checks">{checks}</td>
                         <td>
                           <div className="row-actions" onClick={e => e.stopPropagation()}>
+                            {l.backlog_issue_key && (
+                              <button className="btn-icon" onClick={() => syncBacklog(l)} title={`Backlog同期 (${l.backlog_issue_key})`} disabled={saving}>🔗</button>
+                            )}
+                            {l.slack_channel && (
+                              <button className="btn-icon" onClick={() => fetchSlackSummary(l)} title={`Slack要約 (#${l.slack_channel})`}>💬</button>
+                            )}
                             <button className="btn-icon" onClick={() => openEdit(l)} title="編集">✏️</button>
                             <button className="btn-icon del" onClick={() => askDelete(l.id)} title="削除">🗑️</button>
                           </div>
@@ -589,6 +651,43 @@ export default function LPManager() {
           </div>
         </div>
       </div>
+
+      {/* SLACK AI 要約 モーダル */}
+      {summaryLP && (
+        <div className="overlay open" onClick={e => { if (e.target === e.currentTarget) setSummaryLP(null) }}>
+          <div className="modal">
+            <div className="modal-head">
+              <span className="modal-title">💬 Slack要約 — {summaryLP.name}</span>
+              <button className="modal-close" onClick={() => setSummaryLP(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ minHeight: 200 }}>
+              {summaryLoading && (
+                <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-sub)' }}>
+                  ⏳ AIがSlackチャンネルを分析中...
+                </div>
+              )}
+              {summaryError && (
+                <div style={{ padding: 16, color: 'var(--red)', background: '#fff5f5', borderRadius: 8, margin: 8 }}>
+                  ⚠️ {summaryError}
+                </div>
+              )}
+              {summaryText && !summaryLoading && (
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, padding: '4px 8px', fontSize: 14 }}>
+                  {summaryText}
+                </div>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn btn-ghost" onClick={() => setSummaryLP(null)}>閉じる</button>
+              {!summaryLoading && (
+                <button className="btn btn-primary" onClick={() => fetchSlackSummary(summaryLP)}>
+                  🔄 再取得
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TOAST */}
       <div className={`toast${toastVisible ? ' show' : ''}`}>{toastMsg}</div>
