@@ -65,15 +65,19 @@ export async function POST(req: NextRequest) {
     const keyId = content.key_id as number
     const fullKey   = `${projectKey}-${keyId}`             // e.g. "S-193"
     const shortKey  = `${projectKey.toLowerCase()}${keyId}` // e.g. "s193"
-
+    // プロジェクトキー小文字もマッチ対象に追加（例: "S246" → "s246"）
+        const projectKeyLower = projectKey.toLowerCase()
+    
     const { data: rows, error } = await supabase
       .from('lp_cases')
       .select('id, status, name')
       .or([
         `backlog_issue_key.eq.${fullKey}`,
         `backlog_issue_key.eq.${shortKey}`,
+        `backlog_issue_key.eq.${projectKeyLower}`,
         `channel.eq.${shortKey}`,
         `channel.eq.${fullKey}`,
+        `channel.eq.${projectKeyLower}`,
       ].join(','))
       .limit(1)
 
