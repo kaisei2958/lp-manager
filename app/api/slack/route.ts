@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   if (!channel) return NextResponse.json({ error: 'channel is required' }, { status: 400 })
   if (!SLACK_TOKEN) {
     return NextResponse.json({ error: 'SLACK_BOT_TOKEN env var not set' }, { status: 500 })
+  }
   
 
   try {
