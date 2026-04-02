@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   if (!channel) return NextResponse.json({ error: 'channel is required' }, { status: 400 })
   if (!SLACK_TOKEN) {
     return NextResponse.json({ error: 'SLACK_BOT_TOKEN env var not set' }, { status: 500 })
-  }
+  
 
   try {
     // チャンネル名の場合はIDに変換
@@ -86,7 +86,7 @@ async function resolveChannelId(name: string): Promise<string | null> {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${SLACK_TOKEN}` } })
     const data = await res.json()
     if (!data.ok) return null
-    const ch = data.channels?.find((c: { name: string; id: string }) => c.name === cleanName)
+    const ch = data.channels?.find((c: { name: string; id: string }) => c.name === cleanName || c.name.startsWith(cleanName + '_'))
     if (ch) return ch.id
     if (!data.response_metadata?.next_cursor) return null
     cursor = data.response_metadata.next_cursor
